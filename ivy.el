@@ -117,6 +117,10 @@
   '((t :inherit font-lock-builtin-face))
   "Face used by Ivy for displaying keys in `ivy-read-action'.")
 
+(defface ivy-path-face
+  '((t :inherit default))
+  "Face used by Ivy for highlighting path information.")
+
 (setcdr (assoc load-file-name custom-current-group-alist) 'ivy)
 
 (defcustom ivy-height 10
@@ -193,6 +197,13 @@ See https://github.com/abo-abo/swiper/wiki/ivy-display-function."
     (tmm-shortcut . completing-read-default))
   "An alist of handlers to replace `completing-read' in `ivy-mode'."
   :type '(alist :key-type function :value-type function))
+
+(defcustom ivy-display-path-format "%s"
+  "Format string to use in `ivy-switch-buffer' to display path information."
+  :type 'string)
+
+(defvar ivy--display-path-p nil
+  "When non-nil, add path information to candidates in `ivy-switch-buffer'.")
 
 (defvar ivy--actions-list nil
   "A list of extra actions per command.")
@@ -3247,7 +3258,19 @@ BUFFER may be a string or nil."
     "other window")
    ("r"
     ivy--rename-buffer-action
-    "rename")))
+    "rename")
+   ("p"
+    ivy--toggle-path-action
+    "toggle path")))
+
+(defun ivy--toggle-path-action (x)
+  "Toggle displaying path information for all buffers."
+  (if ivy--display-path-p
+      (setq ivy--display-path-p nil)
+    (setq ivy--display-path-p t)))
+
+(defun ivy--display-path-transformer (str file)
+  (concat str " " (propertize (format ivy-display-path-format file) 'face 'ivy-path-face)))
 
 (defun ivy--switch-buffer-matcher (regexp candidates)
   "Return REGEXP-matching CANDIDATES.
@@ -3274,12 +3297,20 @@ Skip buffers that match `ivy-ignore-buffers'."
  'internal-complete-buffer 'ivy-switch-buffer-transformer)
 
 (defun ivy-switch-buffer-transformer (str)
-  (let ((b (get-buffer str)))
-    (if (and b
-             (buffer-file-name b)
-             (buffer-modified-p b))
-        (propertize str 'face 'ivy-modified-buffer)
-      str)))
+  (let* ((b (get-buffer str))
+         (filename (and b
+                        (buffer-file-name b))))
+    (if filename
+        (let ((entry (or (and (buffer-modified-p b)
+                              (propertize str 'face 'ivy-modified-buffer))
+                         str)))
+          (or (and ivy--display-path-p
+                   (ivy--display-path-transformer entry filename))
+              entry))
+      (or (and ivy--display-path-p
+               (equal (get-text-property 0 'face str) 'ivy-virtual)
+               (ivy--display-path-transformer str (expand-file-name (substring-no-properties str))))
+          str))))
 
 (defun ivy-switch-buffer-occur ()
   "Occur function for `ivy-switch-buffer' that uses `ibuffer'."
